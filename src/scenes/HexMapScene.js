@@ -20,8 +20,14 @@ export class HexMapScene extends Phaser.Scene {
   preload() {}
 
   setupPinchZoom() {
-    const canvas = this.sys.game.canvas;
-    if (!canvas) return;
+    // Attach to game container so we get touches regardless of Phaser's internal DOM (canvas vs wrapper).
+    const parentId = this.sys.game.config.parent;
+    const container =
+      typeof parentId === 'string'
+        ? document.getElementById(parentId)
+        : parentId;
+    const el = container || this.sys.game.canvas;
+    if (!el) return;
 
     const getTouchDistance = (touches) => {
       const a = touches[0];
@@ -58,19 +64,22 @@ export class HexMapScene extends Phaser.Scene {
       }
     };
 
-    canvas.addEventListener('touchstart', this._pinchTouchStart, { passive: true });
-    canvas.addEventListener('touchmove', this._pinchTouchMove, { passive: false });
-    canvas.addEventListener('touchend', this._pinchTouchEnd, { passive: true });
-    canvas.addEventListener('touchcancel', this._pinchTouchEnd, { passive: true });
+    const opts = { capture: true };
+    el.addEventListener('touchstart', this._pinchTouchStart, { ...opts, passive: true });
+    el.addEventListener('touchmove', this._pinchTouchMove, { ...opts, passive: false });
+    el.addEventListener('touchend', this._pinchTouchEnd, { ...opts, passive: true });
+    el.addEventListener('touchcancel', this._pinchTouchEnd, { ...opts, passive: true });
+    this._pinchEl = el;
   }
 
   shutdown() {
-    const canvas = this.sys?.game?.canvas;
-    if (canvas && this._pinchTouchStart) {
-      canvas.removeEventListener('touchstart', this._pinchTouchStart);
-      canvas.removeEventListener('touchmove', this._pinchTouchMove);
-      canvas.removeEventListener('touchend', this._pinchTouchEnd);
-      canvas.removeEventListener('touchcancel', this._pinchTouchEnd);
+    const el = this._pinchEl;
+    if (el && this._pinchTouchStart) {
+      const capture = true;
+      el.removeEventListener('touchstart', this._pinchTouchStart, capture);
+      el.removeEventListener('touchmove', this._pinchTouchMove, capture);
+      el.removeEventListener('touchend', this._pinchTouchEnd, capture);
+      el.removeEventListener('touchcancel', this._pinchTouchEnd, capture);
     }
   }
 
