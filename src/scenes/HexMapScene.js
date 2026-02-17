@@ -19,6 +19,61 @@ export class HexMapScene extends Phaser.Scene {
 
   preload() {}
 
+  setupPinchZoom() {
+    const canvas = this.sys.game.canvas;
+    if (!canvas) return;
+
+    const getTouchDistance = (touches) => {
+      const a = touches[0];
+      const b = touches[1];
+      return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+    };
+
+    this._pinchTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        this.isPinching = true;
+        this.isDragging = false;
+        this.initialPinchDistance = getTouchDistance(e.touches);
+        this.initialPinchScale = this.worldContainer.scale;
+      }
+    };
+
+    this._pinchTouchMove = (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const currentDist = getTouchDistance(e.touches);
+        const scaleFactor = currentDist / this.initialPinchDistance;
+        const newScale = Phaser.Math.Clamp(
+          this.initialPinchScale * scaleFactor,
+          0.08,
+          2.2
+        );
+        this.worldContainer.setScale(newScale);
+      }
+    };
+
+    this._pinchTouchEnd = (e) => {
+      if (e.touches.length < 2) {
+        this.isPinching = false;
+      }
+    };
+
+    canvas.addEventListener('touchstart', this._pinchTouchStart, { passive: true });
+    canvas.addEventListener('touchmove', this._pinchTouchMove, { passive: false });
+    canvas.addEventListener('touchend', this._pinchTouchEnd, { passive: true });
+    canvas.addEventListener('touchcancel', this._pinchTouchEnd, { passive: true });
+  }
+
+  shutdown() {
+    const canvas = this.sys?.game?.canvas;
+    if (canvas && this._pinchTouchStart) {
+      canvas.removeEventListener('touchstart', this._pinchTouchStart);
+      canvas.removeEventListener('touchmove', this._pinchTouchMove);
+      canvas.removeEventListener('touchend', this._pinchTouchEnd);
+      canvas.removeEventListener('touchcancel', this._pinchTouchEnd);
+    }
+  }
+
   create() {
     const W = this.scale.width;
     const H = this.scale.height;
@@ -144,13 +199,21 @@ export class HexMapScene extends Phaser.Scene {
     this.dragStart = { x: 0, y: 0 };
     this.containerStart = { x: 0, y: 0 };
 
+    // Pinch-to-zoom state (mobile); pan is skipped while two fingers are down
+    this.isPinching = false;
+    this.initialPinchDistance = 0;
+    this.initialPinchScale = 1;
+    this.setupPinchZoom();
+
     this.input.on('pointerdown', (p) => {
+      if (this.isPinching) return;
       this.isDragging = true;
       this.dragStart = { x: p.x, y: p.y };
       this.containerStart = { x: this.worldContainer.x, y: this.worldContainer.y };
     });
 
     this.input.on('pointermove', (p) => {
+      if (this.isPinching) return;
       if (!this.isDragging) return;
       const dx = p.x - this.dragStart.x;
       const dy = p.y - this.dragStart.y;
@@ -159,7 +222,7 @@ export class HexMapScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', () => {
-      this.isDragging = false;
+      if (!this.isPinching) this.isDragging = false;
     });
 
     this.input.on('wheel', (pointer, objs, dx, dy) => {
