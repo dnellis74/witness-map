@@ -1,0 +1,17 @@
+{
+  "name": "witness-map",
+  "description": "Witness Earth — Hex Map (Phaser 3)",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.3.1"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  }
+}
