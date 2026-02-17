@@ -39,7 +39,8 @@ export class HexMapScene extends Phaser.Scene {
       if (e.touches.length === 2) {
         this.isPinching = true;
         this.isDragging = false;
-        this.initialPinchDistance = getTouchDistance(e.touches);
+        const dist = getTouchDistance(e.touches);
+        this.initialPinchDistance = Math.max(dist, 1); // avoid divide-by-zero
         this.initialPinchScale = this.worldContainer.scale;
       }
     };
@@ -48,6 +49,7 @@ export class HexMapScene extends Phaser.Scene {
       if (e.touches.length === 2) {
         e.preventDefault();
         const currentDist = getTouchDistance(e.touches);
+        if (this.initialPinchDistance < 1) return;
         const scaleFactor = currentDist / this.initialPinchDistance;
         const newScale = Phaser.Math.Clamp(
           this.initialPinchScale * scaleFactor,
@@ -234,8 +236,12 @@ export class HexMapScene extends Phaser.Scene {
       if (!this.isPinching) this.isDragging = false;
     });
 
+    // Wheel zoom: trackpad/Chrome emulation often use opposite deltaY sign; support both
     this.input.on('wheel', (pointer, objs, dx, dy) => {
-      const factor = dy > 0 ? 0.92 : 1.09;
+      const delta = dy !== 0 ? dy : dx; // some devices use deltaX for horizontal pinch
+      if (delta === 0) return;
+      // Many trackpads: positive = zoom in, negative = zoom out (inverted from scroll)
+      const factor = delta > 0 ? 1.09 : 0.92;
       const newScale = Phaser.Math.Clamp(
         this.worldContainer.scale * factor,
         0.08,
