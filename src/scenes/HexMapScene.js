@@ -4,13 +4,12 @@ import { noise2D } from '../utils/noise2D.js';
 import { BIOMES, getBiome, getTileDesc } from '../data/biomes.js';
 import {
   hexCorners,
-  hexToPixel,
-  offsetToAxial,
+  hexAxialToPixel,
+  getHexagonTiles,
   axialDistance,
   shadeColor,
-  getMapDimensions,
 } from '../utils/hex.js';
-import { MAP_SEED, HEX_SIZE, HEX_W, HEX_H, COLS, ROWS } from '../constants.js';
+import { MAP_SEED, HEX_SIZE, HEX_W, HEX_H, HEX_MAP_RADIUS, DEBUG_NO_FOG } from '../constants.js';
 
 export class HexMapScene extends Phaser.Scene {
   constructor() {
@@ -51,12 +50,8 @@ export class HexMapScene extends Phaser.Scene {
         const currentDist = getTouchDistance(e.touches);
         if (this.initialPinchDistance < 1) return;
         const scaleFactor = currentDist / this.initialPinchDistance;
-        const newScale = Phaser.Math.Clamp(
-          this.initialPinchScale * scaleFactor,
-          0.08,
-          2.2
-        );
-        this.worldContainer.setScale(newScale);
+        const newScale = this.initialPinchScale * scaleFactor;
+        this.applyZoomCenteredOnCurrentHex(newScale);
       }
     };
 
@@ -74,6 +69,29 @@ export class HexMapScene extends Phaser.Scene {
     this._pinchEl = el;
   }
 
+  /**
+   * Apply a new scale while keeping the player's current hex at the same screen position.
+   */
+  applyZoomCenteredOnCurrentHex(newScale) {
+    const oldScale = this.worldContainer.scale;
+    const newScaleClamped = Phaser.Math.Clamp(newScale, 0.08, 2.2);
+    if (newScaleClamped === oldScale) return;
+
+    const playerTile = this.hexData.find(
+      (t) => t.q === this.playerHome.q && t.r === this.playerHome.r
+    );
+    const wx = playerTile ? playerTile.x : 0;
+    const wy = playerTile ? playerTile.y : 0;
+
+    // Screen position of the hex before scale change
+    const hexScreenX = this.worldContainer.x + wx * oldScale;
+    const hexScreenY = this.worldContainer.y + wy * oldScale;
+
+    this.worldContainer.setScale(newScaleClamped);
+    this.worldContainer.x = hexScreenX - wx * newScaleClamped;
+    this.worldContainer.y = hexScreenY - wy * newScaleClamped;
+  }
+
   shutdown() {
     const el = this._pinchEl;
     if (el && this._pinchTouchStart) {
@@ -88,7 +106,7 @@ export class HexMapScene extends Phaser.Scene {
   create() {
     const W = this.scale.width;
     const H = this.scale.height;
-    const { totalW, totalH } = getMapDimensions();
+    const R = HEX_MAP_RADIUS;
 
     const elevNoise = noise2D(seededRandom(MAP_SEED + 1), 5);
     const moistNoise = noise2D(seededRandom(MAP_SEED + 3), 4);
@@ -108,66 +126,64 @@ export class HexMapScene extends Phaser.Scene {
     this.hexGraphics = hexGraphics;
     this.settlements = [];
 
-    for (let row = 0; row < ROWS; row++) {
-      for (let col = 0; col < COLS; col++) {
-        const { x, y } = hexToPixel(col, row, totalW, totalH);
-        const nx = (col / COLS) * 3.5;
-        const ny = (row / ROWS) * 3.5;
-        const elev = elevNoise(nx, ny);
-        const moist = moistNoise(nx + 100, ny + 100);
-        const ruin = ruinNoise(nx + 200, ny + 200) * 0.5 + 0.5;
-        const tileRng = seededRandom(col * 31337 + row * 99991 + MAP_SEED);
-        const biomeKey = getBiome(elev, moist, ruin, () => tileRng());
-        const biome = BIOMES[biomeKey];
+    const hexagonTiles = getHexagonTiles(R);
+    const extent = 2 * R;
 
-        if (biomeKey === 'SETTLEMENT') {
-          this.settlements.push({ col, row });
-        }
+    for (const { q, r } of hexagonTiles) {
+      const { x, y } = hexAxialToPixel(q, r);
+      const nx = ((q + R) / extent) * 3.5;
+      const ny = ((r + R) / extent) * 3.5;
+      const elev = elevNoise(nx, ny);
+      const moist = moistNoise(nx + 100, ny + 100);
+      const ruin = ruinNoise(nx + 200, ny + 200) * 0.5 + 0.5;
+      const tileRng = seededRandom(q * 31337 + r * 99991 + MAP_SEED);
+      const biomeKey = getBiome(elev, moist, ruin, () => tileRng());
+      const biome = BIOMES[biomeKey];
 
-        const axial = offsetToAxial(col, row);
-        const shade = 0.85 + tileRng() * 0.3;
-        const fillColor = shadeColor(biome.color, shade);
-        const corners = hexCorners(x, y, HEX_SIZE - 1);
-
-        this.hexData.push({
-          col,
-          row,
-          x,
-          y,
-          biomeKey,
-          corners,
-          elev,
-          moist,
-          axial,
-          visibility: 'unexplored',
-        });
+      if (biomeKey === 'SETTLEMENT') {
+        this.settlements.push({ q, r });
       }
+
+      const corners = hexCorners(x, y, HEX_SIZE - 1);
+
+      this.hexData.push({
+        q,
+        r,
+        x,
+        y,
+        biomeKey,
+        corners,
+        elev,
+        moist,
+        axial: { q, r },
+        visibility: 'unexplored',
+      });
     }
 
-    const midCol = Math.floor(COLS / 2);
-    const midRow = Math.floor(ROWS / 2);
+    const center = { q: 0, r: 0 };
     let playerSettlement = this.settlements[0];
     let minDist = Infinity;
 
     for (const settlement of this.settlements) {
-      const dist = Math.sqrt(
-        Math.pow(settlement.col - midCol, 2) + Math.pow(settlement.row - midRow, 2)
-      );
+      const dist = axialDistance(center, settlement);
       if (dist < minDist) {
         minDist = dist;
         playerSettlement = settlement;
       }
     }
 
-    this.playerHome = playerSettlement;
+    this.playerHome = { ...playerSettlement };
     this.originalSettlement = { ...playerSettlement };
-    const playerHomeAxial = offsetToAxial(playerSettlement.col, playerSettlement.row);
 
     for (const tile of this.hexData) {
-      const dist = axialDistance(playerHomeAxial, tile.axial);
-      if (dist === 0) tile.visibility = 'explored';
-      else if (dist <= 1) tile.visibility = 'explored';
-      else if (dist === 2) tile.visibility = 'visible';
+      if (DEBUG_NO_FOG) {
+        tile.visibility = 'explored';
+      } else {
+        const dist = axialDistance(this.playerHome, tile.axial);
+        if (dist === 0) tile.visibility = 'explored';
+        else if (dist <= 1) tile.visibility = 'explored';
+        else if (dist === 2) tile.visibility = 'visible';
+      }
     }
 
     this.drawHexes(hexGraphics);
@@ -199,7 +215,7 @@ export class HexMapScene extends Phaser.Scene {
     this.selectedTile = null;
 
     const playerHomeTile = this.hexData.find(
-      (t) => t.col === this.playerHome.col && t.row === this.playerHome.row
+      (t) => t.q === this.playerHome.q && t.r === this.playerHome.r
     );
     if (playerHomeTile) {
       this.worldContainer.x = W / 2 - playerHomeTile.x * this.worldContainer.scale;
@@ -236,18 +252,13 @@ export class HexMapScene extends Phaser.Scene {
       if (!this.isPinching) this.isDragging = false;
     });
 
-    // Wheel zoom: trackpad/Chrome emulation often use opposite deltaY sign; support both
+    // Wheel zoom: centered on current hex; trackpad/Chrome often use opposite deltaY
     this.input.on('wheel', (pointer, objs, dx, dy) => {
-      const delta = dy !== 0 ? dy : dx; // some devices use deltaX for horizontal pinch
+      const delta = dy !== 0 ? dy : dx;
       if (delta === 0) return;
-      // Many trackpads: positive = zoom in, negative = zoom out (inverted from scroll)
       const factor = delta > 0 ? 1.09 : 0.92;
-      const newScale = Phaser.Math.Clamp(
-        this.worldContainer.scale * factor,
-        0.08,
-        2.2
-      );
-      this.worldContainer.setScale(newScale);
+      const newScale = this.worldContainer.scale * factor;
+      this.applyZoomCenteredOnCurrentHex(newScale);
     });
 
     const starGfx = this.add.graphics();
@@ -274,7 +285,7 @@ export class HexMapScene extends Phaser.Scene {
     if (!this.playerHome) return;
 
     const playerHomeTile = this.hexData.find(
-      (t) => t.col === this.playerHome.col && t.row === this.playerHome.row
+      (t) => t.q === this.playerHome.q && t.r === this.playerHome.r
     );
     if (!playerHomeTile) return;
 
@@ -324,8 +335,9 @@ export class HexMapScene extends Phaser.Scene {
     for (const tile of this.hexData) {
       const biome = BIOMES[tile.biomeKey];
       const corners = hexCorners(tile.x, tile.y, this.HEX_SIZE - 1);
+      const visibility = DEBUG_NO_FOG ? 'explored' : tile.visibility;
 
-      if (tile.visibility === 'unexplored') {
+      if (visibility === 'unexplored') {
         graphics.fillStyle(0x0a0805, 1.0);
         graphics.beginPath();
         graphics.moveTo(corners[0][0], corners[0][1]);
@@ -338,9 +350,9 @@ export class HexMapScene extends Phaser.Scene {
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.strokePath();
-      } else if (tile.visibility === 'visible') {
+      } else if (visibility === 'visible') {
         const tileRng = seededRandom(
-          tile.col * 31337 + tile.row * 99991 + MAP_SEED
+          tile.q * 31337 + tile.r * 99991 + MAP_SEED
         );
         const shade = 0.85 + tileRng() * 0.3;
         const fillColor = shadeColor(biome.color, shade * 0.4);
@@ -356,9 +368,9 @@ export class HexMapScene extends Phaser.Scene {
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.strokePath();
-      } else if (tile.visibility === 'explored') {
+      } else if (visibility === 'explored') {
         const tileRng = seededRandom(
-          tile.col * 31337 + tile.row * 99991 + MAP_SEED
+          tile.q * 31337 + tile.r * 99991 + MAP_SEED
         );
         const shade = 0.85 + tileRng() * 0.3;
         const fillColor = shadeColor(biome.color, shade);
@@ -392,7 +404,7 @@ export class HexMapScene extends Phaser.Scene {
     this.hoveredTile = tile;
     const isAdjacent = this.isAdjacentToExplored(tile);
     const isCurrentPosition =
-      tile.col === this.playerHome.col && tile.row === this.playerHome.row;
+      tile.q === this.playerHome.q && tile.r === this.playerHome.r;
     if (isAdjacent && !isCurrentPosition) {
       this.input.setDefaultCursor('pointer');
     } else {
@@ -410,7 +422,7 @@ export class HexMapScene extends Phaser.Scene {
   onSelect(tile) {
     const isAdjacent = this.isAdjacentToExplored(tile);
     const isCurrentPosition =
-      tile.col === this.playerHome.col && tile.row === this.playerHome.row;
+      tile.q === this.playerHome.q && tile.r === this.playerHome.r;
     if (isAdjacent && !isCurrentPosition) {
       this.moveTo(tile);
     }
@@ -420,7 +432,7 @@ export class HexMapScene extends Phaser.Scene {
   }
 
   moveTo(tile) {
-    this.playerHome = { col: tile.col, row: tile.row };
+    this.playerHome = { q: tile.q, r: tile.r };
     if (tile.visibility !== 'explored') tile.visibility = 'explored';
     const neighbors = this.getNeighbors(tile);
     for (const neighbor of neighbors) {
@@ -431,37 +443,27 @@ export class HexMapScene extends Phaser.Scene {
 
   isAdjacentToExplored(tile) {
     const playerTile = this.hexData.find(
-      (t) => t.col === this.playerHome.col && t.row === this.playerHome.row
+      (t) => t.q === this.playerHome.q && t.r === this.playerHome.r
     );
     if (!playerTile) return false;
     const neighbors = this.getNeighbors(playerTile);
-    return neighbors.some((n) => n.col === tile.col && n.row === tile.row);
+    return neighbors.some((n) => n.q === tile.q && n.r === tile.r);
   }
 
   getNeighbors(tile) {
-    const { col, row } = tile;
-    const neighborOffsets =
-      row % 2 === 0
-        ? [
-            [-1, -1],
-            [0, -1],
-            [-1, 0],
-            [1, 0],
-            [-1, 1],
-            [0, 1],
-          ]
-        : [
-            [0, -1],
-            [1, -1],
-            [-1, 0],
-            [1, 0],
-            [0, 1],
-            [1, 1],
-          ];
+    const { q, r } = tile;
+    const axialOffsets = [
+      [1, 0],
+      [1, -1],
+      [0, -1],
+      [-1, 0],
+      [-1, 1],
+      [0, 1],
+    ];
     const neighbors = [];
-    for (const [dc, dr] of neighborOffsets) {
+    for (const [dq, dr] of axialOffsets) {
       const neighborTile = this.hexData.find(
-        (t) => t.col === col + dc && t.row === row + dr
+        (t) => t.q === q + dq && t.r === r + dr
       );
       if (neighborTile) neighbors.push(neighborTile);
     }
@@ -473,7 +475,7 @@ export class HexMapScene extends Phaser.Scene {
     const size = this.HEX_SIZE - 1;
 
     const playerTile = this.hexData.find(
-      (t) => t.col === this.playerHome.col && t.row === this.playerHome.row
+      (t) => t.q === this.playerHome.q && t.r === this.playerHome.r
     );
     if (playerTile) {
       const neighbors = this.getNeighbors(playerTile);
@@ -494,8 +496,8 @@ export class HexMapScene extends Phaser.Scene {
       const corners = hexCorners(x, y, size);
       const isAdjacent = this.isAdjacentToExplored(this.hoveredTile);
       const isCurrentPosition =
-        this.hoveredTile.col === this.playerHome.col &&
-        this.hoveredTile.row === this.playerHome.row;
+        this.hoveredTile.q === this.playerHome.q &&
+        this.hoveredTile.r === this.playerHome.r;
       const isMovable = isAdjacent && !isCurrentPosition;
 
       if (isMovable) {
@@ -546,8 +548,9 @@ export class HexMapScene extends Phaser.Scene {
 
   updateInfoPanel(tile) {
     const biome = BIOMES[tile.biomeKey];
+    const visibility = DEBUG_NO_FOG ? 'explored' : tile.visibility;
 
-    if (tile.visibility === 'unexplored') {
+    if (visibility === 'unexplored') {
       const canExplore = this.isAdjacentToExplored(tile);
       document.getElementById('tile-name').textContent = 'Unexplored';
       if (canExplore) {
@@ -562,19 +565,19 @@ export class HexMapScene extends Phaser.Scene {
       return;
     }
 
-    if (tile.visibility === 'visible') {
+    if (visibility === 'visible') {
       const canExplore = this.isAdjacentToExplored(tile);
       document.getElementById('tile-name').textContent = biome.name;
       if (canExplore) {
         document.getElementById('tile-details').innerHTML = `
           <p style="font-style:italic; font-size:12px; color:rgba(200,184,154,0.5); margin-bottom:8px; line-height:1.5;">Biome identified via orbital scan.</p>
-          <div class="stat-row"><span>Grid Position</span><span>${tile.col}, ${tile.row}</span></div>
+          <div class="stat-row"><span>Grid Position</span><span>${tile.q}, ${tile.r}</span></div>
           <div class="stat-row"><span>Status</span><span style="color:rgba(200,136,42,0.8)">Click to Move & Survey</span></div>
         `;
       } else {
         document.getElementById('tile-details').innerHTML = `
           <p style="font-style:italic; font-size:12px; color:rgba(200,184,154,0.5); margin-bottom:8px; line-height:1.5;">Biome identified via orbital scan.</p>
-          <div class="stat-row"><span>Grid Position</span><span>${tile.col}, ${tile.row}</span></div>
+          <div class="stat-row"><span>Grid Position</span><span>${tile.q}, ${tile.r}</span></div>
           <div class="stat-row"><span>Status</span><span style="color:rgba(200,136,42,0.5)">Out of Range</span></div>
         `;
       }
@@ -582,10 +585,10 @@ export class HexMapScene extends Phaser.Scene {
     }
 
     const isAtPlayerPosition =
-      tile.col === this.playerHome.col && tile.row === this.playerHome.row;
+      tile.q === this.playerHome.q && tile.r === this.playerHome.r;
     const isOriginalSettlement =
-      tile.col === this.originalSettlement.col &&
-      tile.row === this.originalSettlement.row &&
+      tile.q === this.originalSettlement.q &&
+      tile.r === this.originalSettlement.r &&
       isAtPlayerPosition;
     const isAdjacent = this.isAdjacentToExplored(tile);
 
@@ -615,7 +618,7 @@ export class HexMapScene extends Phaser.Scene {
 
     detailEl.innerHTML = `
       <p style="font-style:italic; font-size:12px; color:rgba(200,184,154,0.6); margin-bottom:8px; line-height:1.5;">${desc}</p>
-      <div class="stat-row"><span>Grid Position</span><span>${tile.col}, ${tile.row}</span></div>
+      <div class="stat-row"><span>Grid Position</span><span>${tile.q}, ${tile.r}</span></div>
       <div class="stat-row"><span>Elevation Index</span><span>${elevPct}%</span></div>
       <div class="stat-row"><span>Moisture Index</span><span>${moistPct}%</span></div>
       <div class="stat-row"><span>AI Threat Level</span><span style="color:${isAtPlayerPosition || tile.biomeKey === 'SETTLEMENT' ? '#e8b84a' : '#8aaa6a'}">${isAtPlayerPosition || tile.biomeKey === 'SETTLEMENT' ? 'Monitoring' : 'Nominal'}</span></div>

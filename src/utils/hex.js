@@ -1,4 +1,4 @@
-import { HEX_SIZE, HEX_W, HEX_H, COLS, ROWS } from '../constants.js';
+import { HEX_SIZE, HEX_W, HEX_H, HEX_MAP_RADIUS } from '../constants.js';
 
 /**
  * Corners of a pointy-top hex (6 points).
@@ -13,21 +13,29 @@ export function hexCorners(cx, cy, size) {
 }
 
 /**
- * Offset (col, row) to pixel (x, y) relative to map center.
+ * Axial (q, r) to pixel (x, y) for pointy-top hexes, centered at (0, 0).
  */
-export function hexToPixel(col, row, totalW, totalH) {
-  const x = HEX_W * col + (row % 2) * (HEX_W / 2) - totalW / 2;
-  const y = HEX_H * 0.75 * row - totalH / 2;
+export function hexAxialToPixel(q, r, size = HEX_SIZE) {
+  const w = Math.sqrt(3) * size;
+  const h = 2 * size;
+  const x = w * (q + r / 2);
+  const y = h * 0.75 * r;
   return { x, y };
 }
 
 /**
- * Offset coords to axial (q, r) for distance.
+ * All axial (q, r) coordinates inside a hexagon of given radius (center at 0,0).
  */
-export function offsetToAxial(col, row) {
-  const q = col - (row - (row & 1)) / 2;
-  const r = row;
-  return { q, r };
+export function getHexagonTiles(radius) {
+  const tiles = [];
+  for (let r = -radius; r <= radius; r++) {
+    const qMin = Math.max(-radius, -radius - r);
+    const qMax = Math.min(radius, radius - r);
+    for (let q = qMin; q <= qMax; q++) {
+      tiles.push({ q, r });
+    }
+  }
+  return tiles;
 }
 
 /**
@@ -48,7 +56,8 @@ export function shadeColor(hex, factor) {
 }
 
 export function getMapDimensions() {
-  const totalW = COLS * HEX_W;
-  const totalH = ROWS * HEX_H * 0.75;
+  const R = HEX_MAP_RADIUS;
+  const totalW = 2 * Math.sqrt(3) * HEX_SIZE * (R + 0.5);
+  const totalH = 3 * HEX_SIZE * (R + 0.5);
   return { totalW, totalH };
 }
