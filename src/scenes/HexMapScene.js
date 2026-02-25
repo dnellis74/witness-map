@@ -1,15 +1,9 @@
 import Phaser from 'phaser';
 import { seededRandom } from '../utils/seededRandom.js';
-import { noise2D } from '../utils/noise2D.js';
-import { BIOMES, getBiome, getTileDesc } from '../data/biomes.js';
-import { POIS, POI_TYPES, getPoiDescription } from '../data/pois.js';
-import {
-  hexCorners,
-  hexAxialToPixel,
-  getHexagonTiles,
-  axialDistance,
-  shadeColor,
-} from '../utils/hex.js';
+import { BIOMES, getTileDesc } from '../data/biomes.js';
+import { POIS, getPoiDescription } from '../data/pois.js';
+import { hexCorners, axialDistance, shadeColor } from '../utils/hex.js';
+import { generateMap } from '../map/generateMap.js';
 import { MAP_SEED, HEX_SIZE, HEX_W, HEX_H, HEX_MAP_RADIUS, DEBUG_NO_FOG, POI_COUNT } from '../constants.js';
 
 export class HexMapScene extends Phaser.Scene {
@@ -18,6 +12,32 @@ export class HexMapScene extends Phaser.Scene {
   }
 
   preload() {}
+
+  populateLegendBiomes() {
+    const container = document.getElementById('legend-biomes');
+    if (!container) return;
+    const hexToCss = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
+    container.innerHTML = '';
+    for (const [, biome] of Object.entries(BIOMES)) {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<div class="legend-dot" style="background:${hexToCss(biome.color)}"></div>${biome.name}`;
+      container.appendChild(item);
+    }
+  }
+
+  populateLegendPois() {
+    const container = document.getElementById('legend-pois');
+    if (!container) return;
+    const hexToCss = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
+    container.innerHTML = '';
+    for (const [, poi] of Object.entries(POIS)) {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<div class="legend-dot" style="background:${hexToCss(poi.color)}"></div>${poi.name}`;
+      container.appendChild(item);
+    }
+  }
 
   setupPinchZoom() {
     // Attach to game container so we get touches regardless of Phaser's internal DOM (canvas vs wrapper).
@@ -107,101 +127,33 @@ export class HexMapScene extends Phaser.Scene {
   create() {
     const W = this.scale.width;
     const H = this.scale.height;
-    const R = HEX_MAP_RADIUS;
-
-    const elevNoise = noise2D(seededRandom(MAP_SEED + 1), 5);
-    const moistNoise = noise2D(seededRandom(MAP_SEED + 3), 4);
 
     this.HEX_SIZE = HEX_SIZE;
 
     this.worldContainer = this.add.container(W / 2, H / 2);
     this.worldContainer.setScale(0.35);
 
-    this.hexData = [];
     const hexGraphics = this.add.graphics();
     const hexOverlay = this.add.graphics();
     this.worldContainer.add(hexGraphics);
     this.worldContainer.add(hexOverlay);
     this.hexOverlay = hexOverlay;
     this.hexGraphics = hexGraphics;
-    this.settlements = [];
 
-    const hexagonTiles = getHexagonTiles(R);
-    const extent = 2 * R;
+    const map = generateMap({
+      seed: MAP_SEED,
+      radius: HEX_MAP_RADIUS,
+      hexSize: HEX_SIZE,
+      poiCount: POI_COUNT,
+      noFog: DEBUG_NO_FOG,
+    });
+    this.hexData = map.hexData;
+    this.settlements = map.settlements;
+    this.playerHome = map.playerHome;
+    this.originalSettlement = map.originalSettlement;
 
-    // Scale noise so elevation/moisture span a fuller range and all biomes appear
-    const ELEV_SCALE = 1.5;
-    const MOIST_SCALE = 1.5;
-
-    for (const { q, r } of hexagonTiles) {
-      const { x, y } = hexAxialToPixel(q, r);
-      const nx = ((q + R) / extent) * 3.5;
-      const ny = ((r + R) / extent) * 3.5;
-      const elev = Phaser.Math.Clamp(elevNoise(nx, ny) * ELEV_SCALE, -1, 1);
-      const moist = Phaser.Math.Clamp(moistNoise(nx + 100, ny + 100) * MOIST_SCALE, -1, 1);
-      const tileRng = seededRandom(q * 31337 + r * 99991 + MAP_SEED);
-      const biomeKey = getBiome(elev, moist, () => tileRng());
-
-      const corners = hexCorners(x, y, HEX_SIZE - 1);
-
-      this.hexData.push({
-        q,
-        r,
-        x,
-        y,
-        biomeKey,
-        poiType: null,
-        corners,
-        elev,
-        moist,
-        axial: { q, r },
-        visibility: 'unexplored',
-      });
-    }
-
-    // Place N points of interest (seeded shuffle of tile indices)
-    const numPois = Math.max(1, Math.min(POI_COUNT, this.hexData.length));
-    const poiRng = seededRandom(MAP_SEED + 100);
-    const indices = this.hexData.map((_, i) => i);
-    for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(poiRng() * (i + 1));
-      [indices[i], indices[j]] = [indices[j], indices[i]];
-    }
-    for (let i = 0; i < numPois; i++) {
-      const tile = this.hexData[indices[i]];
-      tile.poiType = i === 0 ? 'SETTLEMENT' : POI_TYPES[Math.floor(poiRng() * POI_TYPES.length)];
-    }
-    this.settlements = this.hexData.filter((t) => t.poiType === 'SETTLEMENT');
-
-    const center = { q: 0, r: 0 };
-    let playerSettlement = this.settlements[0];
-    if (this.settlements.length > 1) {
-      let minDist = Infinity;
-      for (const settlement of this.settlements) {
-        const dist = axialDistance(center, settlement);
-        if (dist < minDist) {
-          minDist = dist;
-          playerSettlement = settlement;
-        }
-      }
-    }
-    if (!playerSettlement) {
-      playerSettlement = this.hexData.find((t) => t.q === 0 && t.r === 0) || this.hexData[0];
-    }
-
-    this.playerHome = { q: playerSettlement.q, r: playerSettlement.r };
-    this.originalSettlement = { ...this.playerHome };
-
-    for (const tile of this.hexData) {
-      if (DEBUG_NO_FOG) {
-        tile.visibility = 'explored';
-      } else {
-        const dist = axialDistance(this.playerHome, tile.axial);
-        if (dist === 0) tile.visibility = 'explored';
-        else if (dist <= 1) tile.visibility = 'explored';
-        else if (dist === 2) tile.visibility = 'visible';
-      }
-    }
+    this.populateLegendBiomes();
+    this.populateLegendPois();
 
     this.drawHexes(hexGraphics);
 
