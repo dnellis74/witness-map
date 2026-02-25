@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { seededRandom } from '../utils/seededRandom.js';
-import { BIOMES, getTileDesc } from '../data/biomes.js';
-import { POIS, getPoiDescription } from '../data/pois.js';
+import { BIOMES, getTileDesc } from '../map/biomes.js';
+import { POIS, getPoiDescription } from '../map/pois.js';
 import { hexCorners, axialDistance, shadeColor } from '../utils/hex.js';
 import { generateMap } from '../map/generateMap.js';
 import { MAP_SEED, HEX_SIZE, HEX_W, HEX_H, HEX_MAP_RADIUS, DEBUG_NO_FOG, POI_COUNT } from '../constants.js';
@@ -129,6 +129,7 @@ export class HexMapScene extends Phaser.Scene {
     const H = this.scale.height;
 
     this.HEX_SIZE = HEX_SIZE;
+    this.debugView = 'biome';
 
     this.worldContainer = this.add.container(W / 2, H / 2);
     this.worldContainer.setScale(0.35);
@@ -154,6 +155,17 @@ export class HexMapScene extends Phaser.Scene {
 
     this.populateLegendBiomes();
     this.populateLegendPois();
+
+    const debugRadios = document.querySelectorAll('input[name="debug-view"]');
+    debugRadios.forEach((radio) => {
+      radio.addEventListener('change', () => {
+        const checked = document.querySelector('input[name="debug-view"]:checked');
+        if (checked && ['biome', 'elevation', 'moisture'].includes(checked.value)) {
+          this.debugView = checked.value;
+          this.drawHexes(this.hexGraphics);
+        }
+      });
+    });
 
     this.drawHexes(hexGraphics);
 
@@ -298,6 +310,23 @@ export class HexMapScene extends Phaser.Scene {
     this.playerHomeMarker.strokeCircle(x, y, symbolSize);
   }
 
+  /** Map value in [-1, 1] to hex color by linear RGB interpolation. */
+  lerpHex(value, lowHex, highHex) {
+    const t = Math.max(0, Math.min(1, (value + 1) / 2));
+    const r = Math.round(((lowHex >> 16) & 0xff) * (1 - t) + ((highHex >> 16) & 0xff) * t);
+    const g = Math.round(((lowHex >> 8) & 0xff) * (1 - t) + ((highHex >> 8) & 0xff) * t);
+    const b = Math.round((lowHex & 0xff) * (1 - t) + (highHex & 0xff) * t);
+    return (r << 16) | (g << 8) | b;
+  }
+
+  elevationToColor(value) {
+    return this.lerpHex(value, 0x1a2a4a, 0xc4b49a);
+  }
+
+  moistureToColor(value) {
+    return this.lerpHex(value, 0x8a7a5a, 0x2a4a4a);
+  }
+
   drawHexes(graphics) {
     graphics.clear();
 
@@ -320,24 +349,36 @@ export class HexMapScene extends Phaser.Scene {
         graphics.closePath();
         graphics.strokePath();
       } else if (visibility === 'visible') {
-        const tileRng = seededRandom(
-          tile.q * 31337 + tile.r * 99991 + MAP_SEED
-        );
-        const shade = 0.85 + tileRng() * 0.3;
-        const fillColor = shadeColor(biome.color, shade * 0.4);
+        let fillColor;
+        let borderColor;
+        let borderAlpha = 0.25;
+        if (this.debugView === 'elevation') {
+          fillColor = this.elevationToColor(tile.elev);
+          borderColor = 0x6a6a5a;
+        } else if (this.debugView === 'moisture') {
+          fillColor = this.moistureToColor(tile.moist);
+          borderColor = 0x6a6a5a;
+        } else {
+          const tileRng = seededRandom(
+            tile.q * 31337 + tile.r * 99991 + MAP_SEED
+          );
+          const shade = 0.85 + tileRng() * 0.3;
+          fillColor = shadeColor(biome.color, shade * 0.4);
+          borderColor = biome.border;
+        }
         graphics.fillStyle(fillColor, 1.0);
         graphics.beginPath();
         graphics.moveTo(corners[0][0], corners[0][1]);
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.fillPath();
-        graphics.lineStyle(0.8, biome.border, 0.25);
+        graphics.lineStyle(0.8, borderColor, borderAlpha);
         graphics.beginPath();
         graphics.moveTo(corners[0][0], corners[0][1]);
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.strokePath();
-        if (tile.poiType && POIS[tile.poiType]) {
+        if (this.debugView === 'biome' && tile.poiType && POIS[tile.poiType]) {
           const poi = POIS[tile.poiType];
           graphics.fillStyle(poi.color, 0.12);
           graphics.lineStyle(1, poi.border, 0.2);
@@ -349,24 +390,36 @@ export class HexMapScene extends Phaser.Scene {
           graphics.strokePath();
         }
       } else if (visibility === 'explored') {
-        const tileRng = seededRandom(
-          tile.q * 31337 + tile.r * 99991 + MAP_SEED
-        );
-        const shade = 0.85 + tileRng() * 0.3;
-        const fillColor = shadeColor(biome.color, shade);
+        let fillColor;
+        let borderColor;
+        let borderAlpha = 0.5;
+        if (this.debugView === 'elevation') {
+          fillColor = this.elevationToColor(tile.elev);
+          borderColor = 0x6a6a5a;
+        } else if (this.debugView === 'moisture') {
+          fillColor = this.moistureToColor(tile.moist);
+          borderColor = 0x6a6a5a;
+        } else {
+          const tileRng = seededRandom(
+            tile.q * 31337 + tile.r * 99991 + MAP_SEED
+          );
+          const shade = 0.85 + tileRng() * 0.3;
+          fillColor = shadeColor(biome.color, shade);
+          borderColor = biome.border;
+        }
         graphics.fillStyle(fillColor, 1.0);
         graphics.beginPath();
         graphics.moveTo(corners[0][0], corners[0][1]);
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.fillPath();
-        graphics.lineStyle(0.8, biome.border, 0.5);
+        graphics.lineStyle(0.8, borderColor, borderAlpha);
         graphics.beginPath();
         graphics.moveTo(corners[0][0], corners[0][1]);
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.strokePath();
-        if (tile.poiType && POIS[tile.poiType]) {
+        if (this.debugView === 'biome' && tile.poiType && POIS[tile.poiType]) {
           const poi = POIS[tile.poiType];
           graphics.fillStyle(poi.color, 0.28);
           graphics.lineStyle(2, poi.border, 0.5);

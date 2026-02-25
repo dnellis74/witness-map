@@ -2,8 +2,8 @@
  * Biome definitions: 3×3 elevation × moisture matrix (9 terrain types).
  * (Settlement and Ruins are points of interest; see data/pois.js)
  *
- * Elevation: low < 0.15, mid 0.15–0.5, high > 0.5
- * Moisture:  low < 0.3,  medium 0.3–0.6, high > 0.6
+ * Elevation/moisture in [-1, 1]. Tiers match 0–100% display (low &lt; 33%, mid 33–67%, high &gt; 67%).
+ * Raw: low &lt; -0.34, mid -0.34–0.34, high &gt; 0.34.
  *
  *                    Low Moisture    Medium Moisture   High Moisture
  * High Elevation     Scrubland       Highland          Alpine Forest
@@ -24,14 +24,14 @@ export const BIOMES = {
 };
 
 function elevationTier(elevation) {
-  if (elevation < 0.15) return 'low';
-  if (elevation <= 0.5) return 'mid';
-  return 'high';
+  if (elevation < -0.34) return 'low';   // display < 33%
+  if (elevation <= 0.34) return 'mid';    // 33–67%
+  return 'high';                          // > 67%
 }
 
 function moistureTier(moisture) {
-  if (moisture < 0.3) return 'low';
-  if (moisture <= 0.6) return 'mid';
+  if (moisture < -0.34) return 'low';
+  if (moisture <= 0.34) return 'mid';
   return 'high';
 }
 

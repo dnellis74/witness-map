@@ -4,8 +4,8 @@
  */
 import { seededRandom } from '../utils/seededRandom.js';
 import { noise2D } from '../utils/noise2D.js';
-import { getBiome } from '../data/biomes.js';
-import { POI_TYPES } from '../data/pois.js';
+import { getBiome } from './biomes.js';
+import { POI_TYPES } from './pois.js';
 import {
   hexCorners,
   hexAxialToPixel,
@@ -15,6 +15,15 @@ import {
 
 function clamp(x, min, max) {
   return Math.min(Math.max(x, min), max);
+}
+
+/**
+ * Push values toward ±1 to reduce "average" clustering (more biome variety).
+ * exponent < 1 spreads the distribution toward the extremes.
+ */
+function contrastCurve(x, exponent = 0.6) {
+  if (x >= 0) return Math.pow(x, exponent);
+  return -Math.pow(-x, exponent);
 }
 
 /**
@@ -54,15 +63,21 @@ export function generateMap(options) {
   const elevNoise = noise2D(seededRandom(seed + 1), 5);
   const moistNoise = noise2D(seededRandom(seed + 3), 4);
 
+  // Sample noise over a larger range so the map sees more variation (less uniform)
+  const noiseSpan = 5.5;
+  const contrastExp = 0.6;
+
   const hexData = [];
   const hexagonTiles = getHexagonTiles(radius);
 
   for (const { q, r } of hexagonTiles) {
     const { x, y } = hexAxialToPixel(q, r, hexSize);
-    const nx = ((q + radius) / extent) * 3.5;
-    const ny = ((r + radius) / extent) * 3.5;
-    const elev = clamp(elevNoise(nx, ny) * elevScale, -1, 1);
-    const moist = clamp(moistNoise(nx + 100, ny + 100) * moistScale, -1, 1);
+    const nx = ((q + radius) / extent) * noiseSpan;
+    const ny = ((r + radius) / extent) * noiseSpan;
+    const rawElev = clamp(elevNoise(nx, ny) * elevScale, -1, 1);
+    const rawMoist = clamp(moistNoise(nx + 100, ny + 100) * moistScale, -1, 1);
+    const elev = contrastCurve(rawElev, contrastExp);
+    const moist = contrastCurve(rawMoist, contrastExp);
     const tileRng = seededRandom(q * 31337 + r * 99991 + seed);
     const biomeKey = getBiome(elev, moist, () => tileRng());
     const corners = hexCorners(x, y, hexSize - 1);

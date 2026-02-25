@@ -70,6 +70,19 @@
       text-transform: uppercase;
     }
 
+    #debug-view {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: 'Cinzel', serif;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      color: rgba(200, 184, 154, 0.7);
+      text-transform: uppercase;
+    }
+    #debug-view label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    #debug-view input { accent-color: var(--gold); }
+
     /* Info panel */
     #info-panel {
       position: fixed;
@@ -203,6 +216,11 @@
     <h1>Witness Earth</h1>
     <span class="subtitle">Planetary Survey · Post-Collapse Era</span>
     <div class="sep"></div>
+    <div id="debug-view" role="group" aria-label="Map view">
+      <label><input type="radio" name="debug-view" value="biome" checked> Biome</label>
+      <label><input type="radio" name="debug-view" value="elevation"> Elevation</label>
+      <label><input type="radio" name="debug-view" value="moisture"> Moisture</label>
+    </div>
     <div id="turn-info">Orbital Observation Active</div>
   </div>
 
