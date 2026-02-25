@@ -1,46 +1,40 @@
 /**
  * Biome definitions and tile description data.
+ * (Settlement and Ruins are points of interest; see data/pois.js)
  */
 
 export const BIOMES = {
-  DEEP_WATER: { name: 'Deep Water', color: 0x1e5c82, border: 0x2a7a9e, symbol: '≈' },
-  WETLANDS: { name: 'Wetlands', color: 0x2a7a6e, border: 0x3a9a8e, symbol: '~' },
-  FOREST: { name: 'Forest', color: 0x3d6e2a, border: 0x5a9a3a, symbol: '♦' },
-  GRASSLAND: { name: 'Grassland', color: 0x7a8a3a, border: 0x9aaa4a, symbol: '·' },
-  SCRUBLAND: { name: 'Scrubland', color: 0x8a6a2e, border: 0xaa8a4e, symbol: '○' },
-  WASTELAND: { name: 'Wasteland', color: 0x6a3a28, border: 0x8a5a3a, symbol: '×' },
-  RUINS: { name: 'Ruins', color: 0x4a3a6a, border: 0x6a5a9a, symbol: '▲' },
-  HIGHLAND: { name: 'Highland', color: 0x5a5070, border: 0x7a6a90, symbol: '▲' },
-  SETTLEMENT: { name: 'Settlement', color: 0xc8882a, border: 0xe8b84a, symbol: '◉' },
+  FLAT_PLAINS: { name: 'Flat Plains', color: 0x9aab7a, border: 0xaabb8a, symbol: '·' },
+  ROLLING_HILLS: { name: 'Rolling Hills', color: 0x6b8e4e, border: 0x8aaa6e, symbol: '∿' },
+  STEEP_MOUNTAINS: { name: 'Steep Mountains', color: 0x5a5a6a, border: 0x7a7a8a, symbol: '▲' },
+  LOWLANDS: { name: 'Lowlands', color: 0x4a7a5a, border: 0x6a9a7a, symbol: '∼' },
+  VALLEYS: { name: 'Valleys', color: 0x3d7a4a, border: 0x5a9a6a, symbol: '⌒' },
+  PLATEAUS: { name: 'Plateaus', color: 0x8a7a5a, border: 0xaa9a7a, symbol: '▬' },
+  VOLCANIC: { name: 'Volcanic', color: 0x5a3028, border: 0x7a453a, symbol: '◇' },
 };
 
-export function getBiome(elevation, moisture, ruinNoise, rng) {
-  if (rng() < 0.0055) return 'SETTLEMENT';
-  if (elevation < -0.35) return 'DEEP_WATER';
-  if (elevation < -0.1) {
-    return moisture > 0.1 ? 'WETLANDS' : 'DEEP_WATER';
-  }
-  if (ruinNoise > 0.3 && elevation > 0.1) return 'RUINS';
-  if (elevation > 0.55) return 'HIGHLAND';
-  if (moisture > 0.35) return elevation > 0.2 ? 'FOREST' : 'WETLANDS';
-  if (moisture > 0.05) return elevation > 0.3 ? 'FOREST' : 'GRASSLAND';
-  if (elevation > 0.3) return 'SCRUBLAND';
-  return 'WASTELAND';
+export function getBiome(elevation, moisture, rng) {
+  if (rng() < 0.015) return 'VOLCANIC';
+  if (elevation < -0.2) return 'LOWLANDS';
+  if (elevation < 0.05) return moisture > 0.2 ? 'VALLEYS' : 'LOWLANDS';
+  if (elevation > 0.55) return 'STEEP_MOUNTAINS';
+  if (elevation > 0.4) return 'PLATEAUS';
+  if (elevation > 0.22) return 'ROLLING_HILLS';
+  if (elevation > 0.08) return 'FLAT_PLAINS';
+  return moisture > 0.3 ? 'VALLEYS' : 'LOWLANDS';
 }
 
 const DESCRIPTIONS = {
-  DEEP_WATER: ['Murky pelagic waters; bioluminescent drift observed at depth', 'Saline basin — pre-collapse coastal infrastructure submerged', 'Thermal vents detected; novel chemosynthetic communities possible'],
-  WETLANDS: ['Emergent reed beds; waterfowl colonies re-established', 'Brackish delta — silt accumulation accelerating', 'Amphibian biodiversity index: recovering'],
-  FOREST: ['Old-growth canopy regenerating; fungal networks intact', 'Mixed deciduous regrowth over former agricultural land', 'Keystone predator reintroduction observed — population stabilizing'],
-  GRASSLAND: ['Seasonal grasses; nomadic ungulate herds passing through', 'Wind-sculpted plains; seed dispersal corridors functional', 'Low-intensity human activity signatures detected'],
-  SCRUBLAND: ['Drought-adapted shrub communities; soil carbon depleted', 'Transitional zone between ruin and regrowth', 'Sparse foraging bands; no permanent structures'],
-  WASTELAND: ['Contaminated substrate — long-half-life isotopes present', 'Barren hardpan; extreme thermal variance', 'Human avoidance confirmed; no tribal signature'],
-  RUINS: ['Pre-collapse megastructure remnants — structural collapse risk', 'Salvage activity detected; scavenger tribe territory', 'Archaeological stratigraphy: several civilizational layers visible'],
-  HIGHLAND: ['Alpine meadow; low oxygen; seasonal snowpack', 'Isolated plateau community; distinct cultural drift observed', 'Strategic elevation — long-range observation point'],
-  SETTLEMENT: ['Active tribal settlement — population estimated 200-800', 'Cultivated perimeter; smoke signals suggest ritual activity', 'Resource extraction radius: limited — orbital threshold not exceeded'],
+  FLAT_PLAINS: ['Open grassland; horizon unbroken. Wind patterns stable.', 'Former cropland; soil recovery ongoing. Nomadic herds observed.', 'Wide sight lines; minimal cover. Seasonal burns maintain diversity.'],
+  ROLLING_HILLS: ['Gentle slopes; drainage networks intact. Mixed grass and scrub.', 'Crest and trough topography; microclimates varied.', 'Livestock corridors; soil stable on moderate grades.'],
+  STEEP_MOUNTAINS: ['Exposed rock; snowline visible. Sparse vegetation at elevation.', 'Vertical relief; avalanche risk. Strategic overlooks.', 'Alpine conditions; seasonal access only.'],
+  LOWLANDS: ['Low elevation; drainage slow. Wet-season pooling observed.', 'Floodplain adjacency; sediment-rich. Reed and sedge dominant.', 'Water table near surface; cultivation possible with drainage.'],
+  VALLEYS: ['Sheltered topography; moisture retained. Riparian vegetation present.', 'Between higher ground; seasonal streams. Fertile substrate.', 'Corridor for movement; mixed woodland and meadow.'],
+  PLATEAUS: ['Elevated flat terrain; tableland. Wind-scoured, dry summers.', 'Ancient uplift; erosion-resistant cap. Grazing and limited crops.', 'Wide views; defensible margins. Scattered outcrops.'],
+  VOLCANIC: ['Thermal signature; lava flows or cinder. Sparse colonization.', 'Volcanic soil where weathered; fertility patchy. Fumarole activity.', 'Hazard zone; unstable substrate. Mineral deposits detected.'],
 };
 
 export function getTileDesc(biome) {
   const opts = DESCRIPTIONS[biome];
-  return opts[Math.floor(Math.random() * opts.length)];
+  return opts ? opts[Math.floor(Math.random() * opts.length)] : '';
 }

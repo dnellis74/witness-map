@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { seededRandom } from '../utils/seededRandom.js';
 import { noise2D } from '../utils/noise2D.js';
 import { BIOMES, getBiome, getTileDesc } from '../data/biomes.js';
+import { POIS, POI_TYPES, getPoiDescription } from '../data/pois.js';
 import {
   hexCorners,
   hexAxialToPixel,
@@ -9,7 +10,7 @@ import {
   axialDistance,
   shadeColor,
 } from '../utils/hex.js';
-import { MAP_SEED, HEX_SIZE, HEX_W, HEX_H, HEX_MAP_RADIUS, DEBUG_NO_FOG } from '../constants.js';
+import { MAP_SEED, HEX_SIZE, HEX_W, HEX_H, HEX_MAP_RADIUS, DEBUG_NO_FOG, POI_COUNT } from '../constants.js';
 
 export class HexMapScene extends Phaser.Scene {
   constructor() {
@@ -110,7 +111,6 @@ export class HexMapScene extends Phaser.Scene {
 
     const elevNoise = noise2D(seededRandom(MAP_SEED + 1), 5);
     const moistNoise = noise2D(seededRandom(MAP_SEED + 3), 4);
-    const ruinNoise = noise2D(seededRandom(MAP_SEED + 5), 3);
 
     this.HEX_SIZE = HEX_SIZE;
 
@@ -129,20 +129,18 @@ export class HexMapScene extends Phaser.Scene {
     const hexagonTiles = getHexagonTiles(R);
     const extent = 2 * R;
 
+    // Scale noise so elevation/moisture span a fuller range and all biomes appear
+    const ELEV_SCALE = 1.5;
+    const MOIST_SCALE = 1.5;
+
     for (const { q, r } of hexagonTiles) {
       const { x, y } = hexAxialToPixel(q, r);
       const nx = ((q + R) / extent) * 3.5;
       const ny = ((r + R) / extent) * 3.5;
-      const elev = elevNoise(nx, ny);
-      const moist = moistNoise(nx + 100, ny + 100);
-      const ruin = ruinNoise(nx + 200, ny + 200) * 0.5 + 0.5;
+      const elev = Phaser.Math.Clamp(elevNoise(nx, ny) * ELEV_SCALE, -1, 1);
+      const moist = Phaser.Math.Clamp(moistNoise(nx + 100, ny + 100) * MOIST_SCALE, -1, 1);
       const tileRng = seededRandom(q * 31337 + r * 99991 + MAP_SEED);
-      const biomeKey = getBiome(elev, moist, ruin, () => tileRng());
-      const biome = BIOMES[biomeKey];
-
-      if (biomeKey === 'SETTLEMENT') {
-        this.settlements.push({ q, r });
-      }
+      const biomeKey = getBiome(elev, moist, () => tileRng());
 
       const corners = hexCorners(x, y, HEX_SIZE - 1);
 
@@ -152,6 +150,7 @@ export class HexMapScene extends Phaser.Scene {
         x,
         y,
         biomeKey,
+        poiType: null,
         corners,
         elev,
         moist,
@@ -160,20 +159,38 @@ export class HexMapScene extends Phaser.Scene {
       });
     }
 
+    // Place N points of interest (seeded shuffle of tile indices)
+    const numPois = Math.max(1, Math.min(POI_COUNT, this.hexData.length));
+    const poiRng = seededRandom(MAP_SEED + 100);
+    const indices = this.hexData.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(poiRng() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    for (let i = 0; i < numPois; i++) {
+      const tile = this.hexData[indices[i]];
+      tile.poiType = i === 0 ? 'SETTLEMENT' : POI_TYPES[Math.floor(poiRng() * POI_TYPES.length)];
+    }
+    this.settlements = this.hexData.filter((t) => t.poiType === 'SETTLEMENT');
+
     const center = { q: 0, r: 0 };
     let playerSettlement = this.settlements[0];
-    let minDist = Infinity;
-
-    for (const settlement of this.settlements) {
-      const dist = axialDistance(center, settlement);
-      if (dist < minDist) {
-        minDist = dist;
-        playerSettlement = settlement;
+    if (this.settlements.length > 1) {
+      let minDist = Infinity;
+      for (const settlement of this.settlements) {
+        const dist = axialDistance(center, settlement);
+        if (dist < minDist) {
+          minDist = dist;
+          playerSettlement = settlement;
+        }
       }
     }
+    if (!playerSettlement) {
+      playerSettlement = this.hexData.find((t) => t.q === 0 && t.r === 0) || this.hexData[0];
+    }
 
-    this.playerHome = { ...playerSettlement };
-    this.originalSettlement = { ...playerSettlement };
+    this.playerHome = { q: playerSettlement.q, r: playerSettlement.r };
+    this.originalSettlement = { ...this.playerHome };
 
     for (const tile of this.hexData) {
       if (DEBUG_NO_FOG) {
@@ -368,6 +385,17 @@ export class HexMapScene extends Phaser.Scene {
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.strokePath();
+        if (tile.poiType && POIS[tile.poiType]) {
+          const poi = POIS[tile.poiType];
+          graphics.fillStyle(poi.color, 0.12);
+          graphics.lineStyle(1, poi.border, 0.2);
+          graphics.beginPath();
+          graphics.moveTo(corners[0][0], corners[0][1]);
+          for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
+          graphics.closePath();
+          graphics.fillPath();
+          graphics.strokePath();
+        }
       } else if (visibility === 'explored') {
         const tileRng = seededRandom(
           tile.q * 31337 + tile.r * 99991 + MAP_SEED
@@ -386,14 +414,17 @@ export class HexMapScene extends Phaser.Scene {
         for (let i = 1; i < 6; i++) graphics.lineTo(corners[i][0], corners[i][1]);
         graphics.closePath();
         graphics.strokePath();
-        if (tile.biomeKey === 'SETTLEMENT') {
-          graphics.fillStyle(0xe8b84a, 0.18);
+        if (tile.poiType && POIS[tile.poiType]) {
+          const poi = POIS[tile.poiType];
+          graphics.fillStyle(poi.color, 0.28);
+          graphics.lineStyle(2, poi.border, 0.5);
           graphics.beginPath();
           graphics.moveTo(corners[0][0], corners[0][1]);
           for (let i = 1; i < 6; i++)
             graphics.lineTo(corners[i][0], corners[i][1]);
           graphics.closePath();
           graphics.fillPath();
+          graphics.strokePath();
         }
       }
     }
@@ -599,6 +630,8 @@ export class HexMapScene extends Phaser.Scene {
     } else if (isAtPlayerPosition) {
       desc =
         'Current expedition position. Your scouts have surveyed this area and established temporary camp.';
+    } else if (tile.poiType && POIS[tile.poiType]) {
+      desc = getPoiDescription(tile.poiType);
     } else {
       desc = getTileDesc(tile.biomeKey);
     }
@@ -606,9 +639,10 @@ export class HexMapScene extends Phaser.Scene {
     const elevPct = Math.round(((tile.elev + 1) / 2) * 100);
     const moistPct = Math.round(((tile.moist + 1) / 2) * 100);
 
+    const displayName = tile.poiType && POIS[tile.poiType] ? POIS[tile.poiType].name : biome.name;
     document.getElementById('tile-name').textContent = isAtPlayerPosition
       ? '⬢ Current Position'
-      : biome.name;
+      : displayName;
 
     const detailEl = document.getElementById('tile-details');
     const moveHint =
@@ -621,7 +655,7 @@ export class HexMapScene extends Phaser.Scene {
       <div class="stat-row"><span>Grid Position</span><span>${tile.q}, ${tile.r}</span></div>
       <div class="stat-row"><span>Elevation Index</span><span>${elevPct}%</span></div>
       <div class="stat-row"><span>Moisture Index</span><span>${moistPct}%</span></div>
-      <div class="stat-row"><span>AI Threat Level</span><span style="color:${isAtPlayerPosition || tile.biomeKey === 'SETTLEMENT' ? '#e8b84a' : '#8aaa6a'}">${isAtPlayerPosition || tile.biomeKey === 'SETTLEMENT' ? 'Monitoring' : 'Nominal'}</span></div>
+      <div class="stat-row"><span>AI Threat Level</span><span style="color:${isAtPlayerPosition || tile.poiType === 'SETTLEMENT' ? '#e8b84a' : '#8aaa6a'}">${isAtPlayerPosition || tile.poiType === 'SETTLEMENT' ? 'Monitoring' : 'Nominal'}</span></div>
       ${moveHint}
     `;
   }
