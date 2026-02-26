@@ -13,7 +13,7 @@ export const HEX_KM = 10;
 export const HEX_MAP_RADIUS = 63;
 
 /** When true, all tiles are shown as explored (no fog of war). */
-export const DEBUG_NO_FOG = true;
+export const DEBUG_NO_FOG = false;
 
 /** Number of points of interest (e.g. settlements, ruins) placed on the map. At least one will be a settlement (player home). */
 export const POI_COUNT = 20;

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { seededRandom } from '../utils/seededRandom.js';
-import { BIOMES, getTileDesc } from '../map/biomes.js';
+import { BIOMES, getTileDesc, getTravelHours, isPassable } from '../map/biomes.js';
 import { POIS, getPoiDescription } from '../map/pois.js';
 import { hexCorners, axialDistance, shadeColor } from '../utils/hex.js';
 import { generateMap } from '../map/generateMap.js';
@@ -152,6 +152,12 @@ export class HexMapScene extends Phaser.Scene {
     this.settlements = map.settlements;
     this.playerHome = map.playerHome;
     this.originalSettlement = map.originalSettlement;
+
+    /** Game turn: day 1 = March 25 (first day of spring). Counts up; season cycles each year. */
+    this.day = 1;
+    /** Time of day in hours from dawn (0 = dawn). Day length = 12 hr (dawn to sunset); advances by travel cost per hex. */
+    this.timeOfDay = 0;
+    this.updateTurnInfo();
 
     this.populateLegendBiomes();
     this.populateLegendPois();
@@ -459,7 +465,8 @@ export class HexMapScene extends Phaser.Scene {
     const isAdjacent = this.isAdjacentToExplored(tile);
     const isCurrentPosition =
       tile.q === this.playerHome.q && tile.r === this.playerHome.r;
-    if (isAdjacent && !isCurrentPosition) {
+    const canEnter = isPassable(tile.biomeKey);
+    if (isAdjacent && !isCurrentPosition && canEnter) {
       this.moveTo(tile);
     }
     this.selectedTile = tile;
@@ -467,8 +474,52 @@ export class HexMapScene extends Phaser.Scene {
     this.updateInfoPanel(tile);
   }
 
+  /** Dawn = 6:00, sunset = 18:00; 12-hour travel window per day. */
+  static DAY_LENGTH_HOURS = 12;
+  static DAWN_HOUR = 6;
+
+  /**
+   * Day 1 = first day of spring (March 25). 90 days per season, 4 seasons per year.
+   * @param {number} day - Current day (≥ 1)
+   * @returns {string} e.g. "Day 1 - Spring 1", "Day 91 - Summer 1"
+   */
+  formatDaySeason(day) {
+    const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
+    const DAYS_PER_SEASON = 90;
+    const DAYS_PER_YEAR = DAYS_PER_SEASON * 4;
+    const year = 1 + Math.floor((day - 1) / DAYS_PER_YEAR);
+    const dayInYear = ((day - 1) % DAYS_PER_YEAR) + 1;
+    const seasonIndex = Math.floor((dayInYear - 1) / DAYS_PER_SEASON);
+    const season = SEASONS[seasonIndex];
+    return `Day ${day} — ${season} ${year}`;
+  }
+
+  /** Format timeOfDay (hours from dawn) as clock time, e.g. "6:00", "10:30". */
+  formatTimeOfDay(timeOfDay) {
+    const totalHours = HexMapScene.DAWN_HOUR + timeOfDay;
+    const h = Math.floor(totalHours);
+    const m = Math.round((totalHours % 1) * 60);
+    if (m === 0) return `${h}:00`;
+    return `${h}:${String(m).padStart(2, '0')}`;
+  }
+
+  updateTurnInfo() {
+    const el = document.getElementById('turn-info');
+    if (!el) return;
+    const dayStr = this.formatDaySeason(this.day);
+    const timeStr = this.formatTimeOfDay(this.timeOfDay);
+    el.textContent = `${dayStr} · ${timeStr}`;
+  }
+
   moveTo(tile) {
     this.playerHome = { q: tile.q, r: tile.r };
+    const travelHours = getTravelHours(tile.biomeKey) ?? 0;
+    this.timeOfDay += travelHours;
+    while (this.timeOfDay >= HexMapScene.DAY_LENGTH_HOURS) {
+      this.day += 1;
+      this.timeOfDay -= HexMapScene.DAY_LENGTH_HOURS;
+    }
+    this.updateTurnInfo();
     if (tile.visibility !== 'explored') tile.visibility = 'explored';
     const neighbors = this.getNeighbors(tile);
     for (const neighbor of neighbors) {
@@ -603,18 +654,22 @@ export class HexMapScene extends Phaser.Scene {
 
     if (visibility === 'visible') {
       const canExplore = this.isAdjacentToExplored(tile);
+      const hours = getTravelHours(tile.biomeKey);
+      const travelStr = hours == null ? 'Impassable' : `${hours} hr`;
       document.getElementById('tile-name').textContent = biome.name;
-      if (canExplore) {
+      if (canExplore && hours != null) {
         document.getElementById('tile-details').innerHTML = `
           <p style="font-style:italic; font-size:12px; color:rgba(200,184,154,0.5); margin-bottom:8px; line-height:1.5;">Biome identified via orbital scan.</p>
           <div class="stat-row"><span>Grid Position</span><span>${tile.q}, ${tile.r}</span></div>
+          <div class="stat-row"><span>Travel (on foot)</span><span>${travelStr}</span></div>
           <div class="stat-row"><span>Status</span><span style="color:rgba(200,136,42,0.8)">Click to Move & Survey</span></div>
         `;
       } else {
         document.getElementById('tile-details').innerHTML = `
           <p style="font-style:italic; font-size:12px; color:rgba(200,184,154,0.5); margin-bottom:8px; line-height:1.5;">Biome identified via orbital scan.</p>
           <div class="stat-row"><span>Grid Position</span><span>${tile.q}, ${tile.r}</span></div>
-          <div class="stat-row"><span>Status</span><span style="color:rgba(200,136,42,0.5)">Out of Range</span></div>
+          <div class="stat-row"><span>Travel (on foot)</span><span>${travelStr}</span></div>
+          <div class="stat-row"><span>Status</span><span style="color:rgba(200,136,42,0.5)">${hours == null ? 'Impassable' : 'Out of Range'}</span></div>
         `;
       }
       return;
@@ -649,15 +704,24 @@ export class HexMapScene extends Phaser.Scene {
       ? '⬢ Current Position'
       : displayName;
 
+    const travelHours = getTravelHours(tile.biomeKey);
+    const travelStr = travelHours == null ? 'Impassable' : `${travelHours} hr`;
+    const canEnter = isPassable(tile.biomeKey);
     const detailEl = document.getElementById('tile-details');
     const moveHint =
-      !isAtPlayerPosition && isAdjacent
+      !isAtPlayerPosition && isAdjacent && canEnter
         ? `<div class="stat-row" style="border-top:1px solid rgba(200,136,42,0.15); margin-top:4px; padding-top:4px;"><span style="color:rgba(200,136,42,0.6)">Click to move here</span></div>`
         : '';
 
+    const biomeRow = isAtPlayerPosition
+      ? `<div class="stat-row"><span>Biome</span><span>${biome.name}</span></div>`
+      : '';
+
     detailEl.innerHTML = `
       <p style="font-style:italic; font-size:12px; color:rgba(200,184,154,0.6); margin-bottom:8px; line-height:1.5;">${desc}</p>
+      ${biomeRow}
       <div class="stat-row"><span>Grid Position</span><span>${tile.q}, ${tile.r}</span></div>
+      <div class="stat-row"><span>Travel (on foot)</span><span>${travelStr}</span></div>
       <div class="stat-row"><span>Elevation Index</span><span>${elevPct}%</span></div>
       <div class="stat-row"><span>Moisture Index</span><span>${moistPct}%</span></div>
       <div class="stat-row"><span>AI Threat Level</span><span style="color:${isAtPlayerPosition || tile.poiType === 'SETTLEMENT' ? '#e8b84a' : '#8aaa6a'}">${isAtPlayerPosition || tile.poiType === 'SETTLEMENT' ? 'Monitoring' : 'Nominal'}</span></div>

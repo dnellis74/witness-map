@@ -5,6 +5,9 @@
  * Elevation/moisture in [-1, 1]. Tiers match 0–100% display (low &lt; 33%, mid 33–67%, high &gt; 67%).
  * Raw: low &lt; -0.34, mid -0.34–0.34, high &gt; 0.34.
  *
+ * travelHours: time to cross one hex (10 km) on foot; null = impassable.
+ * Baseline: ~30 km in 12 hr → grassland 4 hr/hex.
+ *
  *                    Low Moisture    Medium Moisture   High Moisture
  * High Elevation     Scrubland       Highland          Alpine Forest
  * Mid Elevation      Wasteland       Grassland         Forest
@@ -12,16 +15,27 @@
  */
 
 export const BIOMES = {
-  SCRUBLAND: { name: 'Scrubland', color: 0x7a6e5a, border: 0x9a8e7a, symbol: '○' },
-  HIGHLAND: { name: 'Highland', color: 0x6a6258, border: 0x8a8278, symbol: '▲' },
-  ALPINE_FOREST: { name: 'Alpine Forest', color: 0x2d4a48, border: 0x3d6a68, symbol: '♦' },
-  WASTELAND: { name: 'Wasteland', color: 0xb8956a, border: 0xc8a87a, symbol: '×' },
-  GRASSLAND: { name: 'Grassland', color: 0x6b7a5a, border: 0x8a9a7a, symbol: '·' },
-  FOREST: { name: 'Forest', color: 0x3d5c4a, border: 0x5a7c6a, symbol: '♦' },
-  SALT_FLAT: { name: 'Salt Flat', color: 0xc4beb2, border: 0xd8d2c8, symbol: '▢' },
-  WETLANDS: { name: 'Wetlands', color: 0x5a6048, border: 0x7a8058, symbol: '∼' },
-  DEEP_WATER: { name: 'Deep Water', color: 0x1a3d3a, border: 0x2a5d58, symbol: '≈' },
+  SCRUBLAND: { name: 'Scrubland', color: 0x7a6e5a, border: 0x9a8e7a, symbol: '○', travelHours: 5 },
+  HIGHLAND: { name: 'Highland', color: 0x6a6258, border: 0x8a8278, symbol: '▲', travelHours: 6 },
+  ALPINE_FOREST: { name: 'Alpine Forest', color: 0x2d4a48, border: 0x3d6a68, symbol: '♦', travelHours: 8 },
+  WASTELAND: { name: 'Wasteland', color: 0xb8956a, border: 0xc8a87a, symbol: '×', travelHours: 5.5 },
+  GRASSLAND: { name: 'Grassland', color: 0x6b7a5a, border: 0x8a9a7a, symbol: '·', travelHours: 4 },
+  FOREST: { name: 'Forest', color: 0x3d5c4a, border: 0x5a7c6a, symbol: '♦', travelHours: 6 },
+  SALT_FLAT: { name: 'Salt Flat', color: 0xc4beb2, border: 0xd8d2c8, symbol: '▢', travelHours: 4.5 },
+  WETLANDS: { name: 'Wetlands', color: 0x5a6048, border: 0x7a8058, symbol: '∼', travelHours: 7 },
+  DEEP_WATER: { name: 'Deep Water', color: 0x1a3a52, border: 0x2a5a7a, symbol: '≈', travelHours: null },
 };
+
+/** Travel time in hours for one hex; null if impassable. */
+export function getTravelHours(biomeKey) {
+  const biome = BIOMES[biomeKey];
+  return biome ? biome.travelHours : null;
+}
+
+/** True if the biome can be crossed on foot. */
+export function isPassable(biomeKey) {
+  return getTravelHours(biomeKey) != null;
+}
 
 function elevationTier(elevation) {
   if (elevation < -0.34) return 'low';   // display < 33%
