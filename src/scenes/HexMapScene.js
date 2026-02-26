@@ -453,12 +453,14 @@ export class HexMapScene extends Phaser.Scene {
       this.input.setDefaultCursor('default');
     }
     this.redrawOverlay();
+    this.updateInfoPanel(tile);
   }
 
   clearHover() {
     this.hoveredTile = null;
     this.input.setDefaultCursor('default');
     this.redrawOverlay();
+    if (this.selectedTile) this.updateInfoPanel(this.selectedTile);
   }
 
   onSelect(tile) {
